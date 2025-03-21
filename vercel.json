@@ -5,11 +5,25 @@
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "dist"
+        "distDir": "dist",
+        "zeroConfig": true
       }
     }
   ],
   "routes": [
+    { 
+      "src": "/assets/(.*)\\.js", 
+      "headers": { "content-type": "application/javascript" },
+      "dest": "/assets/$1.js" 
+    },
+    { 
+      "src": "/(.*)\\.js", 
+      "headers": { "content-type": "application/javascript" },
+      "dest": "/$1.js" 
+    },
+    {
+      "handle": "filesystem"
+    },
     {
       "src": "/(.*)",
       "dest": "/index.html"
