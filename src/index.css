@@ -1,0 +1,15 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+/* index.css */
+.ton-connect-button__button {
+    background: #f43f5e !important;
+    color: white !important;
+    border-radius: 0.5rem !important;
+    padding: 0.75rem 1.5rem !important;
+    font-family: inherit !important;
+  }
+  
+  .ton-connect-button__button:hover {
+    background: #e11d48 !important;
+  }
