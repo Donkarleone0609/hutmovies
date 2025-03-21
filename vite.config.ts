@@ -11,5 +11,13 @@ export default defineConfig({
         manualChunks: undefined
       }
     }
-  }
+  },
+  server: {
+    fs: {
+      // Разрешаем доступ к файлам вне директории проекта
+      strict: false,
+      allow: ['..']
+    }
+  },
+  publicDir: 'public'
 })

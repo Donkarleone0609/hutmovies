@@ -3,14 +3,14 @@ import { getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  apiKey: "AIzaSyDfdhYv0xQgr6skr9qQ03S8-jPxFFWBhPg",
+  authDomain: "hut-movies.firebaseapp.com",
+  databaseURL: "https://hut-movies-default-rtdb.firebaseio.com",
+  projectId: "hut-movies",
+  storageBucket: "hut-movies.firebasestorage.app",
+  messagingSenderId: "818725898790",
+  appId: "1:818725898790:web:fa48351ee72e3fd00e74e7",
+  measurementId: "G-D82TQD0366"
 };
 
 // Проверка наличия обязательных конфигурационных параметров

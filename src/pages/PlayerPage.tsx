@@ -9,50 +9,44 @@ import {
   Volume1,
   Maximize,
   Minimize,
-  ArrowLeft
+  ArrowLeft,
+  SkipForward
 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { User } from 'firebase/auth';
 import { ref, get, update } from 'firebase/database';
+import { saveVideoProgress, getVideoProgress, findNextEpisode, formatTime } from '../utils/videoHelper';
 
 // Динамический импорт видео
 const getLocalVideo = async (path: string) => {
   try {
-    // Для упрощения тестирования будем все пути обрабатывать через наш локальный файл
-    // В продакшне здесь будет более комплексная логика маппинга путей
-    // к реальным файлам на сервере или CDN
-    console.log('Пытаюсь загрузить видео по пути:', path);
+    console.log('Обработка пути видео:', path);
     
-    // Проверка различных путей к видео
-    if (path === 'src/movies/1.mp4' || path.includes('1.mp4')) {
-      console.log('Обнаружено совпадение с тестовым видео');
-      const video = await import('../movies/1.mp4');
-      return video.default;
+    // Если это полный URL, возвращаем его как есть
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      console.log('Обнаружен полный URL, возвращаю как есть');
+      return path;
     }
     
-    // Проверка на наличие паттерна для TV шоу
-    if (path.startsWith('tv-shows/') || path.includes('/episodes/')) {
-      console.log('Обнаружен путь сериала, используем тестовое видео');
-      const video = await import('../movies/1.mp4'); // Используем то же видео для тестирования
-      return video.default;
+    // Проверка на объект из импорта (если путь уже обработан)
+    if (typeof path === 'object' && path !== null) {
+      console.log('Получен объект импорта, возвращаю его');
+      return path;
     }
     
-    // Проверка относительных путей в формате "../movies/..."
-    if (path.includes('../movies/') || path.includes('/movies/')) {
-      console.log('Обнаружен относительный путь к видео');
-      try {
-        const video = await import('../movies/1.mp4'); // Для тестирования всегда возвращаем 1.mp4
-        return video.default;
-      } catch (e) {
-        console.error('Не удалось импортировать видео по относительному пути', e);
-      }
+    // Определение точного имени файла из пути
+    const fileName = path.split('/').pop();
+    if (!fileName) {
+      console.error('Не удалось извлечь имя файла из пути:', path);
+      return null;
     }
-    
-    // Если путь не распознан, возвращаем null
-    console.log('Локальное видео не найдено, будет использован внешний источник');
-    return null;
+
+    // Формируем URL к видео в public директории
+    const videoUrl = `/movies/${fileName}`;
+    console.log('Итоговый URL для видео:', videoUrl);
+    return videoUrl;
   } catch (error) {
-    console.error('Ошибка загрузки видео:', error);
+    console.error('Ошибка при получении видео:', error);
     return null;
   }
 };
@@ -272,6 +266,15 @@ export function PlayerPage() {
   const [duration, setDuration] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [userSettings, setUserSettings] = useState({
+    autoplayNext: true,
+    autoDownload: false
+  });
+  const [nextEpisode, setNextEpisode] = useState<{ season: number; episode: number } | null>(null);
+  const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false);
+  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(5);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const searchParams = new URLSearchParams(location.search);
   const season = searchParams.get('season');
@@ -364,15 +367,14 @@ export function PlayerPage() {
               
               if (episodeObj && episodeObj.videoSrc) {
                 console.log('Найден эпизод с видео:', episodeObj);
-                const localVideo = await getLocalVideo(episodeObj.videoSrc);
+                const videoPath = await getLocalVideo(episodeObj.videoSrc);
                 
-                if (localVideo) {
-                  console.log('Использую локальное видео для эпизода');
-                  setVideoSource(localVideo);
+                if (videoPath) {
+                  console.log('Использую видео из источника:', videoPath);
+                  setVideoSource(videoPath);
                   setIsLoading(false);
                 } else {
-                  console.log('Использую внешний источник видео для эпизода');
-                  setVideoSource(episodeObj.videoSrc);
+                  setLoadError('Не удалось загрузить видео. Некорректный путь или ресурс недоступен.');
                   setIsLoading(false);
                 }
                 return;
@@ -392,15 +394,14 @@ export function PlayerPage() {
           } else if (contentData.videoSrc) {
             // Для фильмов используем поле videoSrc
             console.log('Путь к видео:', contentData.videoSrc);
-            const localVideo = await getLocalVideo(contentData.videoSrc);
+            const videoPath = await getLocalVideo(contentData.videoSrc);
             
-            if (localVideo) {
-              console.log('Использую локальное видео');
-              setVideoSource(localVideo);
+            if (videoPath) {
+              console.log('Использую видео из источника:', videoPath);
+              setVideoSource(videoPath);
               setIsLoading(false);
             } else {
-              console.log('Использую внешний источник видео');
-              setVideoSource(contentData.videoSrc);
+              setLoadError('Не удалось загрузить видео. Некорректный путь или ресурс недоступен.');
               setIsLoading(false);
             }
             return;
@@ -443,35 +444,22 @@ export function PlayerPage() {
 
       try {
         if (continueWatching) {
-          let progressRef;
-          let savedProgress = null;
+          const seasonId = season ? parseInt(season) : undefined;
+          const episodeId = episode ? parseInt(episode) : undefined;
           
-          if (!isTV) {
-            // Для фильмов
-            progressRef = ref(db, `users/${currentUser.uid}/watchProgress/${id}`);
-          } else {
-            // Для сериалов
-            if (!season || !episode) {
-              console.error('Ошибка: отсутствуют данные о сезоне или эпизоде');
-              return;
-            }
-            
-            const episodeId = parseInt(episode);
-            const seasonId = parseInt(season);
-            
-            progressRef = ref(db, 
-              `users/${currentUser.uid}/tvTimeStamps/${id}/seasons/${seasonId}/episodes/${episodeId}`
-            );
-          }
-
-          const snapshot = await get(progressRef);
+          const savedProgress = await getVideoProgress(
+            currentUser.uid,
+            id || '',
+            isTV,
+            seasonId,
+            episodeId
+          );
           
-          if (snapshot.exists()) {
-            savedProgress = snapshot.val();
+          if (savedProgress) {
             console.log('Загружен сохраненный прогресс:', savedProgress);
             
-            // Проверяем, что прогресс существует и содержит корректное значение времени
-            if (savedProgress.time && typeof savedProgress.time === 'number' && savedProgress.time > 0) {
+            // Проверяем, что прогресс содержит корректное значение времени
+            if (typeof savedProgress.time === 'number' && savedProgress.time > 0) {
               // Если сохраненное время близко к концу видео, начинаем с начала
               if (duration > 0 && savedProgress.time >= duration - 10) {
                 videoRef.current.currentTime = 0;
@@ -529,56 +517,29 @@ export function PlayerPage() {
     if (!currentUser || !videoRef.current || !videoSource) return;
     
     try {
-      const updates: { [key: string]: any } = {};
       const roundedTime = Math.floor(videoRef.current.currentTime);
-      const timestamp = Date.now();
+      const seasonId = season ? parseInt(season) : undefined;
+      const episodeId = episode ? parseInt(episode) : undefined;
       
-      if (!isTV) {
-        // Для фильмов
-        updates[`users/${currentUser.uid}/watchProgress/${id}`] = {
-          time: roundedTime,
-          timestamp: timestamp,
-          duration: Math.floor(duration)
-        };
-      } else {
-        // Для сериалов - проверяем наличие данных сезона и эпизода
-        if (!season || !episode) {
-          console.error('Ошибка: отсутствуют данные о сезоне или эпизоде');
-          return;
-        }
-        
-        // Создаем структуру для сохранения времени эпизода
-        const episodeId = parseInt(episode);
-        const seasonId = parseInt(season);
-        
-        updates[`users/${currentUser.uid}/tvTimeStamps/${id}/seasons/${seasonId}/episodes/${episodeId}`] = {
-          time: roundedTime,
-          timestamp: timestamp,
-          duration: Math.floor(duration)
-        };
-      }
+      await saveVideoProgress(
+        currentUser.uid,
+        id || '',
+        roundedTime,
+        Math.floor(duration),
+        isTV,
+        seasonId,
+        episodeId
+      );
       
-      // Обновляем данные о последнем просмотренном контенте
-      updates[`users/${currentUser.uid}/lastWatched`] = {
-        type: isTV ? 'tvShow' : 'movie',
-        contentId: parseInt(id || '0'),
-        season: season ? parseInt(season) : undefined,
-        episode: episode ? parseInt(episode) : undefined,
-        time: roundedTime,
-        timestamp: timestamp
-      };
-      
-      // Отправляем обновления в Firebase
-      await update(ref(db), updates);
-      console.log('Прогресс успешно сохранен в Firebase:', {
+      console.log('Прогресс успешно сохранен:', {
         contentId: id,
         type: isTV ? 'tvShow' : 'movie',
-        season,
-        episode,
+        season: seasonId,
+        episode: episodeId,
         time: roundedTime
       });
     } catch (error) {
-      console.error('Ошибка сохранения прогресса в Firebase:', error);
+      console.error('Ошибка сохранения прогресса:', error);
     }
   };
 
@@ -652,6 +613,31 @@ export function PlayerPage() {
     };
   }, [videoRef.current, currentUser, id, videoSource, season, episode, isTV]);
 
+  // Загрузка настроек пользователя из Firebase
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (!currentUser) return;
+      
+      try {
+        const userSettingsRef = ref(db, `users/${currentUser.uid}/settings`);
+        const snapshot = await get(userSettingsRef);
+        
+        if (snapshot.exists()) {
+          const settings = snapshot.val();
+          setUserSettings({
+            autoplayNext: settings.autoplayNext !== false, // По умолчанию true
+            autoDownload: settings.autoDownload === true
+          });
+          console.log('Загружены настройки пользователя:', settings);
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки настроек пользователя:', error);
+      }
+    };
+    
+    loadUserSettings();
+  }, [currentUser]);
+
   // Восстанавливаем настройки громкости из localStorage
   useEffect(() => {
     const savedVolume = localStorage.getItem('player_volume');
@@ -684,140 +670,275 @@ export function PlayerPage() {
     }
   }, [volume, isMuted]);
 
-  return (
-    <div className="flex flex-col h-screen bg-black" ref={containerRef}>
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader size={48} className="text-red-600 animate-spin" />
-        </div>
-      ) : (
-        <>
-          <div className="relative flex-1 overflow-hidden">
-            <video
-              ref={videoRef}
-              src={videoSource || undefined}
-              className="w-full h-full object-contain"
-              autoPlay
-              playsInline
-              onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
-              onDurationChange={() => videoRef.current && setDuration(videoRef.current.duration)}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              onEnded={() => {
-                setIsPlaying(false);
-                if (videoRef.current) {
-                  videoRef.current.currentTime = 0;
-                }
-              }}
-              onClick={() => {
-                if (videoRef.current) {
-                  if (isPlaying) {
-                    videoRef.current.pause();
-                  } else {
-                    videoRef.current.play().catch(err => console.error('Ошибка воспроизведения:', err));
-                  }
-                }
-              }}
-            />
-
-            {/* Кнопка возврата */}
-            <button 
-              onClick={() => navigate(-1)} 
-              className="absolute top-4 left-4 p-2 bg-black/50 hover:bg-black/80 rounded-full z-20 transition-all"
-            >
-              <ArrowLeft size={24} />
-            </button>
-
-            {/* Оверлей управления */}
-            <div 
-              className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-0 hover:opacity-100 transition-opacity z-10 flex flex-col"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (videoRef.current) {
-                  if (isPlaying) {
-                    videoRef.current.pause();
-                  } else {
-                    videoRef.current.play();
-                  }
-                }
-              }}
-            >
-              {/* Нижняя панель управления */}
-              <div 
-                className="mt-auto p-4 select-none"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <ProgressBar 
-                  currentTime={currentTime} 
-                  duration={duration} 
-                  onSeek={(time) => {
-                    if (videoRef.current) {
-                      videoRef.current.currentTime = time;
-                    }
-                  }}
-                />
+  // Обработчик окончания видео и автовоспроизведения следующего эпизода
+  const handleVideoEnded = async () => {
+    setIsPlaying(false);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+    }
+    
+    // Если включена настройка автовоспроизведения следующего эпизода
+    if (isTV && userSettings.autoplayNext) {
+      console.log('Автовоспроизведение следующего эпизода...');
+      
+      try {
+        // Получаем информацию о следующем эпизоде
+        if (!id || !season || !episode) {
+          console.log('Недостаточно данных для поиска следующего эпизода');
+          return;
+        }
+        
+        const seasonId = parseInt(season);
+        const episodeId = parseInt(episode);
+        
+        const nextEpisodeData = await findNextEpisode(id, seasonId, episodeId);
+        
+        if (nextEpisodeData) {
+          console.log(`Найден следующий эпизод: S${nextEpisodeData.season}E${nextEpisodeData.episode}`);
+          
+          // Сохраняем информацию о следующем эпизоде и показываем UI
+          setNextEpisode(nextEpisodeData);
+          setShowNextEpisodeUI(true);
+          setNextEpisodeCountdown(5);
+          
+          // Запускаем обратный отсчет
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+          }
+          
+          countdownIntervalRef.current = setInterval(() => {
+            setNextEpisodeCountdown(prev => {
+              if (prev <= 1) {
+                // Переходим к следующему эпизоду
+                const nextEpisodeUrl = `/player/${id}?season=${nextEpisodeData.season}&episode=${nextEpisodeData.episode}&continue=true`;
+                console.log(`Переход к следующему эпизоду: ${nextEpisodeUrl}`);
+                navigate(nextEpisodeUrl);
                 
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center">
+                // Очищаем интервал
+                if (countdownIntervalRef.current) {
+                  clearInterval(countdownIntervalRef.current);
+                  countdownIntervalRef.current = null;
+                }
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        } else {
+          console.log('Следующий эпизод не найден');
+        }
+      } catch (error) {
+        console.error('Ошибка при переходе к следующему эпизоду:', error);
+      }
+    }
+  };
+  
+  // Отмена автовоспроизведения следующего эпизода
+  const cancelNextEpisode = () => {
+    setShowNextEpisodeUI(false);
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+  };
+  
+  // Немедленный переход к следующему эпизоду
+  const playNextEpisodeNow = () => {
+    if (!nextEpisode || !id) return;
+    
+    const nextEpisodeUrl = `/player/${id}?season=${nextEpisode.season}&episode=${nextEpisode.episode}&continue=true`;
+    console.log(`Переход к следующему эпизоду: ${nextEpisodeUrl}`);
+    navigate(nextEpisodeUrl);
+  };
+
+  // Очистка таймера при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div className="bg-black flex flex-col min-h-screen">
+      <div className="fixed top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent z-10 py-2 px-4">
+        <button 
+          onClick={() => navigate(-1)} 
+          className="text-white flex items-center hover:text-red-500 transition-colors animate-fade-in"
+        >
+          <ArrowLeft size={20} className="mr-1" /> Назад
+        </button>
+      </div>
+      
+      <div className="flex-1 flex items-center justify-center relative animate-fade-in">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center text-center px-4 py-10 text-white animate-fade-in">
+            <div className="spinner-loader mb-4"></div>
+            <p className="text-xl mt-4 animate-pulse-loading">Загрузка видео...</p>
+          </div>
+        ) : loadError ? (
+          <div className="text-center px-4 py-10 text-white animate-fade-in">
+            <p className="text-xl mb-4 text-red-500">Ошибка загрузки видео</p>
+            <p className="text-gray-400">{loadError}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="mt-6 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors"
+            >
+              Попробовать снова
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col h-screen bg-black" ref={containerRef}>
+            <div className="relative flex-1 overflow-hidden">
+              <video
+                ref={videoRef}
+                src={videoSource || undefined}
+                className="w-full h-full object-contain"
+                autoPlay
+                playsInline
+                preload="auto"
+                controls={false}
+                crossOrigin="anonymous"
+                onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
+                onDurationChange={() => videoRef.current && setDuration(videoRef.current.duration)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={handleVideoEnded}
+                onClick={() => {
+                  if (videoRef.current) {
+                    if (isPlaying) {
+                      videoRef.current.pause();
+                    } else {
+                      videoRef.current.play().catch(err => console.error('Ошибка воспроизведения:', err));
+                    }
+                  }
+                }}
+              />
+
+              {/* Оверлей управления */}
+              <div 
+                className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-0 hover:opacity-100 transition-opacity z-10 flex flex-col"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (videoRef.current) {
+                    if (isPlaying) {
+                      videoRef.current.pause();
+                    } else {
+                      videoRef.current.play();
+                    }
+                  }
+                }}
+              >
+                {/* Нижняя панель управления */}
+                <div 
+                  className="mt-auto p-4 select-none"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ProgressBar 
+                    currentTime={currentTime} 
+                    duration={duration} 
+                    onSeek={(time) => {
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = time;
+                      }
+                    }}
+                  />
+                  
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center">
+                      <button
+                        className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                        onClick={() => {
+                          if (videoRef.current) {
+                            if (isPlaying) {
+                              videoRef.current.pause();
+                            } else {
+                              videoRef.current.play();
+                            }
+                          }
+                        }}
+                      >
+                        {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                      </button>
+                      
+                      <VolumeSlider 
+                        volume={volume}
+                        onVolumeChange={(value) => {
+                          setVolume(value);
+                          if (videoRef.current) {
+                            videoRef.current.volume = value;
+                            if (value > 0 && isMuted) {
+                              videoRef.current.muted = false;
+                              setIsMuted(false);
+                            }
+                          }
+                        }}
+                        isMuted={isMuted}
+                        onMuteToggle={() => {
+                          if (videoRef.current) {
+                            videoRef.current.muted = !isMuted;
+                            setIsMuted(!isMuted);
+                          }
+                        }}
+                      />
+                      
+                      <div className="ml-4 text-sm">
+                        {formatTime(currentTime)} / {formatTime(duration)}
+                      </div>
+                    </div>
+                    
                     <button
                       className="p-2 hover:bg-white/10 rounded-full transition-colors"
                       onClick={() => {
-                        if (videoRef.current) {
-                          if (isPlaying) {
-                            videoRef.current.pause();
-                          } else {
-                            videoRef.current.play();
-                          }
+                        if (isFullscreen) {
+                          document.exitFullscreen().catch(err => console.error(err));
+                        } else if (containerRef.current) {
+                          containerRef.current.requestFullscreen().catch(err => console.error(err));
                         }
                       }}
                     >
-                      {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                      {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
                     </button>
-                    
-                    <VolumeSlider 
-                      volume={volume}
-                      onVolumeChange={(value) => {
-                        setVolume(value);
-                        if (videoRef.current) {
-                          videoRef.current.volume = value;
-                          if (value > 0 && isMuted) {
-                            videoRef.current.muted = false;
-                            setIsMuted(false);
-                          }
-                        }
-                      }}
-                      isMuted={isMuted}
-                      onMuteToggle={() => {
-                        if (videoRef.current) {
-                          videoRef.current.muted = !isMuted;
-                          setIsMuted(!isMuted);
-                        }
-                      }}
-                    />
-                    
-                    <div className="ml-4 text-sm">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </div>
                   </div>
-                  
-                  <button
-                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                    onClick={() => {
-                      if (isFullscreen) {
-                        document.exitFullscreen().catch(err => console.error(err));
-                      } else if (containerRef.current) {
-                        containerRef.current.requestFullscreen().catch(err => console.error(err));
-                      }
-                    }}
-                  >
-                    {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-                  </button>
                 </div>
               </div>
+
+              {/* UI для автоперехода к следующему эпизоду */}
+              {showNextEpisodeUI && nextEpisode && (
+                <div className="absolute bottom-24 right-8 p-4 bg-gray-900/90 rounded-lg shadow-lg animate-fade-in">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="bg-red-600 p-2 rounded-full">
+                      <SkipForward size={20} />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-300">Следующий эпизод через {nextEpisodeCountdown}...</p>
+                      <p className="font-medium">
+                        Сезон {nextEpisode.season} Эпизод {nextEpisode.episode}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      className="py-1 px-3 rounded bg-gray-800 hover:bg-gray-700 transition-colors text-sm flex-1"
+                      onClick={cancelNextEpisode}
+                    >
+                      Отмена
+                    </button>
+                    <button 
+                      className="py-1 px-3 rounded bg-red-600 hover:bg-red-700 transition-colors text-sm flex-1"
+                      onClick={playNextEpisodeNow}
+                    >
+                      Смотреть сейчас
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

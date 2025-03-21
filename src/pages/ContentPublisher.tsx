@@ -66,10 +66,7 @@ export function MediaUploadPage() {
           const userRef = ref(db, `users/${user.uid}`);
           const snapshot = await get(userRef);
           
-          if (snapshot.exists()) {
-            const userData = snapshot.val();
-            setIsAdmin(userData.admin === true);
-          }
+          setIsAdmin(snapshot.exists() && snapshot.val().admin === true);
         } catch (error) {
           console.error('Error checking admin status:', error);
           toast.error('Ошибка проверки прав доступа');
@@ -103,25 +100,6 @@ export function MediaUploadPage() {
       if (!formData.image) {
         toast.error('Укажите путь к обложке');
         return;
-      }
-
-      if (formData.type === 'movie' && !formData.videoSrc) {
-        toast.error('Укажите путь к видео файлу');
-        return;
-      }
-
-      if (formData.type === 'tv') {
-        if (formData.seasons.length === 0) {
-          toast.error('Добавьте хотя бы один сезон');
-          return;
-        }
-
-        for (const season of formData.seasons) {
-          if (season.episodes.length === 0) {
-            toast.error('Каждый сезон должен содержать эпизоды');
-            return;
-          }
-        }
       }
 
       const mediaData = {
@@ -318,7 +296,7 @@ export function MediaUploadPage() {
             {formData.type === 'movie' ? (
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Путь к видео <span className="text-red-500">*</span>
+                  Путь к видео
                 </label>
                 <input
                   type="text"
@@ -326,8 +304,7 @@ export function MediaUploadPage() {
                   value={formData.videoSrc}
                   onChange={handleInputChange}
                   className="w-full bg-gray-800 rounded-lg p-3"
-                  placeholder="movies/1.mp4"
-                  required
+                  placeholder="1.mp4 или movies/1.mp4"
                 />
               </div>
             ) : (
@@ -421,7 +398,7 @@ export function MediaUploadPage() {
                               />
                               <input
                                 type="text"
-                                placeholder="Путь к видео (например: tv-shows/series1/s1e1.mp4)"
+                                placeholder="Путь к видео (например: 1.mp4 или tv-shows/series1/s1e1.mp4)"
                                 value={episode.videoSrc}
                                 onChange={(e) => setFormData(prev => ({
                                   ...prev,

@@ -76,17 +76,23 @@ export function HomePage() {
       <div className="container mx-auto px-4 py-8">
         {isLoading ? (
           <div className="flex justify-center py-10">
-            <div className="loader">Загрузка контента...</div>
+            <div className="loader flex flex-col items-center animate-pulse-loading">
+              <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <span className="text-lg">Загрузка контента...</span>
+            </div>
           </div>
         ) : (
           <>
             <ContentRow 
               title="Популярные фильмы" 
               items={movies}
+              className="animate-fade-in"
             />
             <ContentRow 
               title="Сериалы" 
               items={tvShows}
+              className="animate-fade-in"
+              style={{ animationDelay: '100ms' }}
             />
           </>
         )}

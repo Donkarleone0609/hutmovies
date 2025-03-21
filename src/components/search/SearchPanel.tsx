@@ -95,14 +95,14 @@ export function SearchPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-900/95 z-50">
+    <div className="fixed inset-0 bg-gray-900/95 z-50 animate-fade-in">
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-8">
-          <div className="relative flex-1 max-w-2xl mx-auto">
+          <div className="relative flex-1 max-w-2xl mx-auto animate-slide-down">
             <SearchIcon className="absolute left-4 top-3 text-gray-400" size={20} />
             <input
               type="text"
-              className="w-full bg-gray-800 text-white pl-12 pr-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              className="w-full bg-gray-800 text-white pl-12 pr-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 shadow-lg transition-all duration-300"
               placeholder="Поиск фильмов и сериалов..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -111,28 +111,29 @@ export function SearchPanel({
           </div>
           <button
             onClick={onClose}
-            className="ml-4 text-gray-400 hover:text-white transition"
+            className="ml-4 text-gray-400 hover:text-white transition-colors duration-300 animate-fade-in"
           >
             <XIcon size={24} />
           </button>
         </div>
         
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto animate-fade-in" style={{ animationDelay: '100ms' }}>
           {loading ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-400 animate-pulse-loading">
               Загрузка данных...
             </div>
           ) : results.length > 0 ? (
-            results.map(result => (
+            results.map((result, index) => (
               <div
                 key={`${result.type}-${result.id}`}
-                className="flex items-center p-4 hover:bg-gray-800 rounded-lg cursor-pointer transition-colors mb-2"
+                className="flex items-center p-4 hover:bg-gray-800 rounded-lg cursor-pointer transition-all duration-300 mb-2 animate-slide-in-right"
                 onClick={() => handleSelect(result)}
+                style={{ animationDelay: `${50 * index}ms` }}
               >
                 <img
                   src={result.image}
                   alt={result.title}
-                  className="w-16 h-24 object-cover rounded-lg mr-4"
+                  className="w-16 h-24 object-cover rounded-lg mr-4 shadow-md transition-transform duration-300 group-hover:scale-105"
                 />
                 <div>
                   <h3 className="font-medium text-lg">{result.title}</h3>
@@ -143,7 +144,7 @@ export function SearchPanel({
               </div>
             ))
           ) : searchTerm ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-400 animate-fade-in">
               Ничего не найдено по запросу "{searchTerm}"
             </div>
           ) : null}

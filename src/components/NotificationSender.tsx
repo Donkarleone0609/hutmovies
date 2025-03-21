@@ -45,13 +45,10 @@ export function NotificationSender() {
           const userRef = ref(db, `users/${user.uid}`);
           const snapshot = await get(userRef);
           
-          if (snapshot.exists()) {
-            const userData = snapshot.val();
-            setIsAdmin(userData.admin === true);
-          }
+          setIsAdmin(snapshot.exists() && snapshot.val().admin === true);
         } catch (error) {
           console.error('Error checking admin status:', error);
-          toast.error('Ошибка проверки прав доступа');
+          toast.error('Error checking admin rights');
         }
       } else {
         setIsAdmin(false);

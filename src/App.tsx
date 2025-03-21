@@ -22,6 +22,13 @@ import { NotificationSender } from './components/NotificationSender';
 import { AdminProtectedRoute } from './components/AdminProtectedRoute';
 import { MediaUploadPage } from './pages/ContentPublisher';
 import { TransactionHistoryPage } from './pages/TransactionHistoryPage';
+import { episodeCheckService } from './utils/episodeCheckService';
+import { EpisodeNotificationsPage } from './pages/EpisodeNotificationsPage';
+import { SeriesListPage } from './pages/SeriesListPage';
+import { ContentEditorPage } from './pages/ContentEditor';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { MovieListPage } from './pages/MovieListPage';
+import { MovieEditorPage } from './pages/MovieEditor';
 
 const manifestUrl = 'https://orange-used-monkey-420.mypinata.cloud/ipfs/bafkreic4ojkgcphtpev5w3i7mpuqf6h5ofh3llxpwcq2oupr5nb5zowvde';
 
@@ -48,6 +55,15 @@ export function App() {
                 console.log('Subscription expired');
               }
             }
+            
+            // Запускаем сервис проверки новых серий только для администраторов
+            const adminRef = ref(db, `users/${user.uid}/roles/admin`);
+            const adminSnapshot = await get(adminRef);
+            
+            if (adminSnapshot.exists()) {
+              // Запуск сервиса с интервалом в 12 часов
+              episodeCheckService.startService();
+            }
           }
         } catch (error) {
           console.error('Subscription check error:', error);
@@ -55,7 +71,11 @@ export function App() {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      // Останавливаем сервис при размонтировании компонента
+      episodeCheckService.stopService();
+    };
   }, []);
 
   return (
@@ -81,12 +101,36 @@ export function App() {
             {/* Защищенные админские роуты */}
             <Route element={<AdminProtectedRoute />}>
               <Route 
+                path="/admin"
+                element={<AdminDashboard />}
+              />
+              <Route 
                 path="/admin/notifications" 
                 element={<NotificationSender />} 
               />
               <Route 
                 path="/admin/add-media" 
                 element={<MediaUploadPage />} 
+              />
+              <Route 
+                path="/admin/episode-notifications" 
+                element={<EpisodeNotificationsPage />} 
+              />
+              <Route 
+                path="/admin/series-list" 
+                element={<SeriesListPage />} 
+              />
+              <Route 
+                path="/admin/edit-series/:id" 
+                element={<ContentEditorPage />} 
+              />
+              <Route 
+                path="/admin/movies-list" 
+                element={<MovieListPage />} 
+              />
+              <Route 
+                path="/admin/edit-movie/:id" 
+                element={<MovieEditorPage />} 
               />
             </Route>
           </Routes>

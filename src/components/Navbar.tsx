@@ -34,10 +34,7 @@ export function Navbar() {
           const userRef = ref(db, `users/${user.uid}`);
           const snapshot = await get(userRef);
           
-          if (snapshot.exists()) {
-            const userData = snapshot.val();
-            setIsAdmin(userData.admin === true);
-          }
+          setIsAdmin(snapshot.exists() && snapshot.val().admin === true);
         } catch (error) {
           console.error('Ошибка проверки прав администратора:', error);
         }
@@ -80,20 +77,12 @@ export function Navbar() {
                   TV Shows
                 </Link>
                 {isAdmin && (
-                  <>
-                    <Link 
-                      to="/admin/notifications" 
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      Admin Notifications
-                    </Link>
-                    <Link 
-                      to="/admin/add-media" 
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      Add Media
-                    </Link>
-                  </>
+                  <Link 
+                    to="/admin" 
+                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
+                  >
+                    Админ-панель
+                  </Link>
                 )}
               </div>
             </div>
@@ -107,7 +96,7 @@ export function Navbar() {
                   <span className="absolute -top-1 -right-1 bg-red-500 rounded-full w-2 h-2" />
                 </button>
                 {showNotifications && <div className="absolute right-0 mt-2 z-50">
-                    <NotificationsPanel />
+                    <NotificationsPanel onClose={() => setShowNotifications(false)} />
                   </div>}
               </div>
               <button 
@@ -139,20 +128,12 @@ export function Navbar() {
                   TV Shows
                 </Link>
                 {isAdmin && (
-                  <>
-                    <Link 
-                      to="/admin/notifications" 
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      Admin Notifications
-                    </Link>
-                    <Link 
-                      to="/admin/add-media" 
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      Add Media
-                    </Link>
-                  </>
+                  <Link 
+                    to="/admin" 
+                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
+                  >
+                    Админ-панель
+                  </Link>
                 )}
               </div>
             </div>}

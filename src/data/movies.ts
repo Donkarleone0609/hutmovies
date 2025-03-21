@@ -1,5 +1,3 @@
-import video1 from '../movies/1.mp4'; // Правильный путь к видео
-
 export interface Movie {
   id: number;
   title: string;
@@ -25,7 +23,7 @@ export const movies: Movie[] = [
     duration: '5m',
     rating: '4.8',
     year: '2024',
-    videoSrc: video1, // Используем импортированный файл
+    videoSrc: '1.mp4', // Используем путь к файлу вместо импорта
     genre: 'Корометражка',
     director: 'HUT Originals',
     cast: ['Петр Петров', 'Мария Иванова', 'Сергей Сидоров']

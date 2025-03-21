@@ -11,9 +11,11 @@ type ContentItem = {
 type ContentRowProps = {
   title: string;
   items: ContentItem[];
+  className?: string;
+  style?: React.CSSProperties;
 };
 
-export function ContentRow({ title, items }: ContentRowProps) {
+export function ContentRow({ title, items, className = '', style }: ContentRowProps) {
   // Функция для преобразования типа контента в правильный путь
   const getContentPath = (type: string, id: number) => {
     if (type === 'tv') {
@@ -23,7 +25,7 @@ export function ContentRow({ title, items }: ContentRowProps) {
   };
 
   return (
-    <div className="mb-6">
+    <div className={`mb-6 ${className}`} style={style}>
       <h2 className="text-lg font-bold mb-3">{title}</h2>
       <div className="grid grid-cols-4 md:grid-cols-5 lg:grid-cols-8 xl:grid-cols-10 gap-2">
         {items.map((item) => (

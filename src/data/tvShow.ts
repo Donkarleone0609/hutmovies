@@ -1,5 +1,3 @@
-import video1 from '../movies/1.mp4';
-
 export interface TVShow {
   id: number;
   type: 'tv';
@@ -42,13 +40,13 @@ export const tvShows: TVShow[] = [
             id: 1,
             title: 'Пилотная серия',
             duration: '45m',
-            videoSrc: video1
+            videoSrc: '2.mp4'  // Используем путь к файлу вместо импорта
           },
           {
             id: 2,
             title: 'Пилотная sсерия',
             duration: '42m',
-            videoSrc: video1
+            videoSrc: '1.mp4'  // Используем путь к файлу вместо импорта
           }
         ]
       }
