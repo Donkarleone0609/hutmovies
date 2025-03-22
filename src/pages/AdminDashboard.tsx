@@ -7,7 +7,10 @@ import {
   BellIcon,
   PlusIcon,
   ListIcon,
-  EditIcon
+  EditIcon,
+  DollarSignIcon,
+  UserIcon,
+  TimerIcon
 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { ref, get } from 'firebase/database';
@@ -99,6 +102,30 @@ export function AdminDashboard() {
             </div>
             <h2 className="text-xl font-bold text-center">Управление фильмами</h2>
             <p className="text-gray-400 text-center mt-2">Редактирование данных фильмов</p>
+          </Link>
+
+          {/* Управление балансом пользователей */}
+          <Link 
+            to="/admin/user-balances" 
+            className="bg-gray-800 hover:bg-gray-700 p-6 rounded-lg flex flex-col items-center transition-all hover:transform hover:scale-105"
+          >
+            <div className="bg-teal-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+              <DollarSignIcon size={32} />
+            </div>
+            <h2 className="text-xl font-bold text-center">Управление балансом</h2>
+            <p className="text-gray-400 text-center mt-2">Изменение баланса пользователей</p>
+          </Link>
+
+          {/* Управление рулеткой */}
+          <Link 
+            to="/admin/roulette-manager" 
+            className="bg-gray-800 hover:bg-gray-700 p-6 rounded-lg flex flex-col items-center transition-all hover:transform hover:scale-105"
+          >
+            <div className="bg-red-500 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+              <TimerIcon size={32} />
+            </div>
+            <h2 className="text-xl font-bold text-center">Управление рулеткой</h2>
+            <p className="text-gray-400 text-center mt-2">Настройка акций и времени проведения</p>
           </Link>
 
           {/* Уведомления о новых эпизодах */}

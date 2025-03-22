@@ -7,6 +7,8 @@ import { User } from 'firebase/auth';
 import { ref, update, get, remove, push } from 'firebase/database';
 import { toast } from 'react-toastify';
 import { Link } from 'react-router-dom';
+import { Dialog } from '@headlessui/react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const PLANS = [
   {
@@ -49,6 +51,8 @@ export function PricingSection() {
   const [currentSubscription, setCurrentSubscription] = useState<any>(null);
   const [userData, setUserData] = useState<any>(null);
   const [processing, setProcessing] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<any>(null);
 
   const checkSubscriptionStatus = async (user: User) => {
     const userRef = ref(db, `users/${user.uid}`);
@@ -235,6 +239,74 @@ export function PricingSection() {
     return { text: `Купить за ${plan.price} TON`, disabled: false };
   };
 
+  const handleSubscriptionPurchase = (plan: any) => {
+    activateSubscription(plan);
+  };
+
+  const handleDirectPayment = () => {
+    if (selectedPlan) {
+      activateSubscription(selectedPlan);
+    }
+    setIsModalOpen(false);
+  };
+
+  const handleBalancePayment = async () => {
+    if (!currentUser) {
+      toast.error('Требуется авторизация');
+      return;
+    }
+
+    const userRef = ref(db, `users/${currentUser.uid}`);
+    const snapshot = await get(userRef);
+    const currentBalance = snapshot.exists() && snapshot.val().rouletteBalance 
+      ? snapshot.val().rouletteBalance 
+      : 0;
+
+    if (currentBalance < selectedPlan.price) {
+      toast.error('Недостаточно средств на балансе рулетки');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+      const startDate = Date.now();
+      const endDate = startDate + 30 * 24 * 60 * 60 * 1000;
+
+      await update(userRef, {
+        subscription: {
+          plan: selectedPlan.name,
+          startDate,
+          endDate,
+          status: 'active'
+        },
+        rouletteBalance: currentBalance - selectedPlan.price
+      });
+
+      setCurrentSubscription({
+        plan: selectedPlan.name,
+        startDate,
+        endDate,
+        status: 'active'
+      });
+
+      await addTransactionRecord({
+        plan: selectedPlan.name,
+        date: startDate,
+        amount: selectedPlan.price,
+        status: 'success',
+        type: 'subscription'
+      });
+
+      toast.success('Подписка активирована через баланс рулетки!');
+    } catch (error) {
+      console.error('Ошибка активации подписки через баланс:', error);
+      toast.error('Ошибка активации подписки через баланс');
+    } finally {
+      setProcessing(false);
+      setIsModalOpen(false);
+    }
+  };
+
   return (
     <div className="bg-gray-800 py-16">
       <div className="container mx-auto px-4">
@@ -245,12 +317,6 @@ export function PricingSection() {
           </p>
           
           <div className="mt-6 flex justify-center flex-col items-center">
-            <TonConnectButton 
-              style={{ 
-                borderRadius: '0.5rem',
-                padding: '0.75rem 1.5rem',
-              }}
-            />
             {currentUser && (
               <Link 
                 to="/transactions" 
@@ -290,7 +356,7 @@ export function PricingSection() {
                 </ul>
 
                 <button
-                  onClick={() => activateSubscription(plan)}
+                  onClick={() => handleSubscriptionPurchase(plan)}
                   disabled={disabled || processing}
                   className={`w-full py-3 rounded-md transition ${
                     disabled || processing
@@ -304,6 +370,50 @@ export function PricingSection() {
             );
           })}
         </div>
+
+        <AnimatePresence>
+          {isModalOpen && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-70"
+              onClick={() => setIsModalOpen(false)}
+            >
+              <motion.div 
+                className="bg-gray-800 p-8 rounded-lg text-center max-w-md w-full relative overflow-hidden"
+                animate={{ y: [0, -10, 0] }}
+                transition={{ repeat: Infinity, duration: 1.5 }}
+              >
+                <motion.div 
+                  className="absolute -top-10 -left-10 w-[500px] h-[500px] bg-red-500 rounded-full opacity-10"
+                  animate={{ scale: [1, 1.5, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.5 }}
+                ></motion.div>
+                
+                <h2 className="text-3xl font-bold mb-4 text-yellow-300">Выберите способ оплаты</h2>
+                <div className="flex justify-center mb-6">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-blue-500 hover:bg-blue-600 px-6 py-3 rounded-lg font-bold mx-2"
+                    onClick={handleDirectPayment}
+                  >
+                    Оплата напрямую
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-green-500 hover:bg-green-600 px-6 py-3 rounded-lg font-bold mx-2"
+                    onClick={handleBalancePayment}
+                  >
+                    Оплата Балансом
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

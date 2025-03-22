@@ -89,6 +89,8 @@ export function TVShowPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [sendingNotification, setSendingNotification] = useState(false);
   const [checkingNewEpisodes, setCheckingNewEpisodes] = useState(false);
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [averageRating, setAverageRating] = useState<number | null>(null);
   
   // Загружаем данные сериала из Firebase
   useEffect(() => {
@@ -101,7 +103,13 @@ export function TVShowPage() {
         const snapshot = await get(tvShowRef);
         
         if (snapshot.exists()) {
-          setShow(snapshot.val());
+          const showData = snapshot.val();
+          setShow(showData);
+          if (showData.ratings) {
+            const totalRatings = Object.values(showData.ratings) as number[];
+            const avgRating = totalRatings.reduce((acc, rating) => acc + rating, 0) / totalRatings.length;
+            setAverageRating(avgRating);
+          }
         } else {
           console.error('Сериал не найден в базе данных');
           setShow(null);
@@ -187,6 +195,13 @@ export function TVShowPage() {
           // Проверяем, является ли пользователь администратором
           if (userSnapshot.exists()) {
             setIsAdmin(userSnapshot.val().admin === true);
+          }
+          
+          // Получаем оценку пользователя, если она есть
+          const userRatingRef = ref(db, `tvShows/${id}/ratings/${user.uid}`);
+          const userRatingSnapshot = await get(userRatingRef);
+          if (userRatingSnapshot.exists()) {
+            setUserRating(userRatingSnapshot.val());
           }
         } catch (error) {
           console.error('Error loading user data:', error);
@@ -420,6 +435,45 @@ export function TVShowPage() {
     }
   };
 
+  const handleRating = async (rating: number) => {
+    if (!currentUser || !show) return;
+    
+    // Проверяем, доступны ли эпизоды для просмотра
+    const hasAvailableEpisodes = show.seasons && 
+      Array.isArray(show.seasons) && 
+      show.seasons.some(season => 
+        season.episodes && 
+        season.episodes.some(episode => episode.videoSrc)
+      );
+      
+    // Проверяем, смотрел ли пользователь сериал
+    const hasWatched = show.id && 
+      tvTimeStamps && 
+      tvTimeStamps[show.id.toString()] &&
+      Object.keys(tvTimeStamps[show.id.toString()]).length > 0;
+      
+    if (!hasAvailableEpisodes || !hasWatched) return;
+    
+    try {
+      const ratingRef = ref(db, `tvShows/${show.id}/ratings/${currentUser.uid}`);
+      await set(ratingRef, rating);
+      setUserRating(rating);
+      // Recalculate average rating
+      const tvShowRef = ref(db, `tvShows/${show.id}`);
+      const snapshot = await get(tvShowRef);
+      if (snapshot.exists()) {
+        const showData = snapshot.val();
+        if (showData.ratings) {
+          const totalRatings = Object.values(showData.ratings) as number[];
+          const avgRating = totalRatings.reduce((acc, rating) => acc + rating, 0) / totalRatings.length;
+          setAverageRating(avgRating);
+        }
+      }
+    } catch (error) {
+      console.error('Error setting rating:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
@@ -483,7 +537,7 @@ export function TVShowPage() {
                   <div className="flex flex-wrap gap-4 text-sm mb-6">
                     <span className="flex items-center">
                       <StarIcon size={16} className="mr-1" />
-                      {show.rating}
+                      {averageRating ? averageRating.toFixed(1) : show.rating}
                     </span>
                     <span>{show.year}</span>
                     <span className="flex items-center">
@@ -527,6 +581,12 @@ export function TVShowPage() {
                       const hasAvailableEpisodes = hasEpisodes && show.seasons.some(season => 
                         season.episodes && season.episodes.some(episode => episode.videoSrc)
                       );
+                      
+                      // Проверяем, смотрел ли пользователь сериал
+                      const hasWatched = show.id && 
+                        tvTimeStamps && 
+                        tvTimeStamps[show.id.toString()] &&
+                        Object.keys(tvTimeStamps[show.id.toString()]).length > 0;
                       
                       if (!hasSeasons || !hasEpisodes || !hasAvailableEpisodes) {
                         return (
@@ -583,6 +643,43 @@ export function TVShowPage() {
                       </button>
                     )}
                   </div>
+
+                  {(() => {
+                    // Проверяем наличие сезонов и эпизодов
+                    const hasSeasons = show.seasons && Array.isArray(show.seasons) && show.seasons.length > 0;
+                    const hasEpisodes = hasSeasons && show.seasons.some(season => 
+                      season.episodes && Array.isArray(season.episodes) && season.episodes.length > 0
+                    );
+                    const hasAvailableEpisodes = hasEpisodes && show.seasons.some(season => 
+                      season.episodes && season.episodes.some(episode => episode.videoSrc)
+                    );
+                    
+                    // Проверяем, смотрел ли пользователь сериал
+                    const hasWatched = show.id && 
+                      tvTimeStamps && 
+                      tvTimeStamps[show.id.toString()] &&
+                      Object.keys(tvTimeStamps[show.id.toString()]).length > 0;
+                    
+                    // Отображаем блок оценки только если пользователь авторизован, сериал доступен для просмотра и пользователь его смотрел
+                    if (currentUser && hasAvailableEpisodes && hasWatched) {
+                      return (
+                        <div className="flex gap-2 mt-4 mb-4">
+                          <span className="text-gray-400 mr-2">Ваша оценка:</span>
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              onClick={() => handleRating(star)}
+                              className={`text-xl ${userRating && userRating >= star ? 'text-yellow-400' : 'text-gray-400'}`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    }
+                    
+                    return null;
+                  })()}
                 </div>
               </div>
             </div>

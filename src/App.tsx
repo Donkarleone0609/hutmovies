@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { Navbar } from './components/Navbar';
@@ -17,7 +17,7 @@ import { ToastContainer } from 'react-toastify';
 import { PlayerPage } from './pages/PlayerPage';
 import 'react-toastify/dist/ReactToastify.css';
 import { auth, db } from './firebase';
-import { ref, get, update } from 'firebase/database';
+import { ref, get, update, onValue } from 'firebase/database';
 import { NotificationSender } from './components/NotificationSender';
 import { AdminProtectedRoute } from './components/AdminProtectedRoute';
 import { MediaUploadPage } from './pages/ContentPublisher';
@@ -29,11 +29,71 @@ import { ContentEditorPage } from './pages/ContentEditor';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { MovieListPage } from './pages/MovieListPage';
 import { MovieEditorPage } from './pages/MovieEditor';
+import { RoulettePage } from './pages/RoulettePage';
+import { UserBalanceManagementPage } from './pages/UserBalanceManagementPage';
+import { RouletteManagerPage } from './pages/RouletteManagerPage';
+import { LoadingScreen } from './components/LoadingScreen';
 
 const manifestUrl = 'https://orange-used-monkey-420.mypinata.cloud/ipfs/bafkreic4ojkgcphtpev5w3i7mpuqf6h5ofh3llxpwcq2oupr5nb5zowvde';
 
 export function App() {
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isUserDataLoaded, setIsUserDataLoaded] = useState(false);
+  const [isContentPreloaded, setIsContentPreloaded] = useState(false);
+  const [appFullyLoaded, setAppFullyLoaded] = useState(false);
+
+  // Проверка соединения с Firebase
   useEffect(() => {
+    const checkFirebaseConnection = async () => {
+      try {
+        // Проверяем, что Firebase инициализирован и мы можем получить доступ к данным
+        const testRef = ref(db, 'settings');
+        await get(testRef);
+        
+        // Если получили ответ без ошибок, считаем что подключение установлено
+        setIsFirebaseConnected(true);
+        setIsInitializing(false);
+      } catch (error) {
+        console.error('Firebase connection test failed:', error);
+        setIsInitializing(false);
+      }
+    };
+    
+    checkFirebaseConnection();
+  }, []);
+
+  // Предзагрузка основных данных контента
+  useEffect(() => {
+    if (!isFirebaseConnected) return;
+
+    const preloadContent = async () => {
+      try {
+        // Загружаем базовые данные для фильмов и сериалов, чтобы они были в кэше
+        const moviesRef = ref(db, 'movies');
+        const tvShowsRef = ref(db, 'tvShows');
+        
+        // Запускаем загрузку параллельно
+        await Promise.all([
+          get(moviesRef),
+          get(tvShowsRef)
+        ]);
+        
+        setIsContentPreloaded(true);
+      } catch (error) {
+        console.error('Error preloading content:', error);
+        // Даже если произошла ошибка, все равно продолжаем и считаем, что контент предзагружен
+        setIsContentPreloaded(true);
+      }
+    };
+
+    preloadContent();
+  }, [isFirebaseConnected]);
+
+  // Проверка авторизации пользователя и загрузка данных пользователя
+  useEffect(() => {
+    if (!isFirebaseConnected) return;
+
     const unsubscribe = auth.onAuthStateChanged(async user => {
       if (user) {
         try {
@@ -65,9 +125,17 @@ export function App() {
               episodeCheckService.startService();
             }
           }
+          
+          // Помечаем, что данные пользователя загружены
+          setIsUserDataLoaded(true);
         } catch (error) {
           console.error('Subscription check error:', error);
+          // Даже при ошибке считаем, что данные загружены, чтобы не блокировать интерфейс
+          setIsUserDataLoaded(true);
         }
+      } else {
+        // Если пользователь не авторизован, то нет данных для загрузки
+        setIsUserDataLoaded(true);
       }
     });
 
@@ -76,7 +144,36 @@ export function App() {
       // Останавливаем сервис при размонтировании компонента
       episodeCheckService.stopService();
     };
-  }, []);
+  }, [isFirebaseConnected]);
+
+  // Эффект для отслеживания полной загрузки и добавления дополнительной задержки
+  useEffect(() => {
+    // Проверяем, все ли данные загружены
+    const isAppReady = 
+      isFirebaseConnected && 
+      !isInitializing && 
+      isUserDataLoaded && 
+      isContentPreloaded;
+    
+    if (isAppReady) {
+      // Добавляем небольшую задержку перед отображением приложения,
+      // чтобы компоненты успели получить данные и корректно отрендериться
+      const timer = setTimeout(() => {
+        setAppFullyLoaded(true);
+      }, 1500); // Задержка в 1.5 секунды для гарантии загрузки
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isFirebaseConnected, isInitializing, isUserDataLoaded, isContentPreloaded]);
+
+  const handleConnectionSuccess = () => {
+    setIsFirebaseConnected(true);
+  };
+
+  // Если идет инициализация или не все данные загружены, или нужна доп. задержка, показываем экран загрузки
+  if (!appFullyLoaded) {
+    return <LoadingScreen onConnectionSuccess={handleConnectionSuccess} />;
+  }
 
   return (
     <TonConnectUIProvider manifestUrl={manifestUrl}>
@@ -97,6 +194,7 @@ export function App() {
             <Route path="/player/:id" element={<PlayerPage />} />
             <Route path="/watch/:id" element={<PlayerPage />} />
             <Route path="/transactions" element={<TransactionHistoryPage />} />
+            <Route path="/roulette" element={<RoulettePage />} />
             <Route path="*" element={<NotFoundPage />} />
             {/* Защищенные админские роуты */}
             <Route element={<AdminProtectedRoute />}>
@@ -131,6 +229,14 @@ export function App() {
               <Route 
                 path="/admin/edit-movie/:id" 
                 element={<MovieEditorPage />} 
+              />
+              <Route 
+                path="/admin/user-balances" 
+                element={<UserBalanceManagementPage />} 
+              />
+              <Route 
+                path="/admin/roulette-manager" 
+                element={<RouletteManagerPage />} 
               />
             </Route>
           </Routes>

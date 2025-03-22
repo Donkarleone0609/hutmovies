@@ -9,6 +9,7 @@ import { AppSettings } from './settings/AppSettings';
 import { auth, db } from '../firebase';
 import { ref, get } from 'firebase/database';
 import { toast } from 'react-toastify';
+import { TonConnectButton } from '@tonconnect/ui-react';
 
 export function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -76,6 +77,9 @@ export function Navbar() {
                 <Link to="/categories?type=tv" className="text-gray-300 hover:text-red-500 transition-colors">
                   TV Shows
                 </Link>
+                <Link to="/roulette" className="text-gray-300 hover:text-red-500 transition-colors">
+                  Рулетка
+                </Link>
                 {isAdmin && (
                   <Link 
                     to="/admin" 
@@ -87,6 +91,12 @@ export function Navbar() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <TonConnectButton 
+                style={{ 
+                  borderRadius: '0.5rem',
+                  marginRight: '0.5rem'
+                }}
+              />
               <button className="text-gray-300 hover:text-white" onClick={() => setShowSearch(true)}>
                 <SearchIcon size={20} />
               </button>
@@ -126,6 +136,9 @@ export function Navbar() {
                 </Link>
                 <Link to="/categories?type=tv" className="text-gray-300 hover:text-red-500 transition-colors">
                   TV Shows
+                </Link>
+                <Link to="/roulette" className="text-gray-300 hover:text-red-500 transition-colors">
+                  Рулетка
                 </Link>
                 {isAdmin && (
                   <Link 

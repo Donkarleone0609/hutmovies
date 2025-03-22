@@ -52,7 +52,7 @@ interface TVTimeStamps {
  */
 interface LastWatched {
   type: 'tvShow' | 'movie';
-  contentId: number;
+  contentId: string | number;
   season?: number;
   episode?: number;
   time: number;
@@ -82,13 +82,14 @@ export const saveVideoProgress = async (
   
   try {
     const updates: { [key: string]: any } = {};
-    const roundedTime = Math.floor(currentTime);
+    // Сохраняем точное время в секундах с десятичными знаками
+    const exactTime = currentTime;
     const timestamp = Date.now();
     
     if (!isTV) {
       // Для фильмов
       updates[`users/${userId}/watchProgress/${contentId}`] = {
-        time: roundedTime,
+        time: exactTime,
         timestamp: timestamp,
         duration: Math.floor(duration)
       };
@@ -100,50 +101,21 @@ export const saveVideoProgress = async (
       }
       
       updates[`users/${userId}/tvTimeStamps/${contentId}/seasons/${seasonNumber}/episodes/${episodeNumber}`] = {
-        time: roundedTime,
+        time: exactTime,
         timestamp: timestamp,
         duration: Math.floor(duration)
       };
     }
     
-    // Проверяем и преобразуем contentId перед сохранением в lastWatched
-    let parsedContentId: number;
-    if (typeof contentId === 'string') {
-      parsedContentId = parseInt(contentId);
-      // Проверяем, что результат преобразования не NaN
-      if (isNaN(parsedContentId)) {
-        console.warn('Неверное значение contentId для lastWatched:', contentId);
-        // Используем contentId как строку без преобразования
-        updates[`users/${userId}/lastWatched`] = {
-          type: isTV ? 'tvShow' : 'movie',
-          contentId: contentId, // Используем исходное значение
-          season: seasonNumber,
-          episode: episodeNumber,
-          time: roundedTime,
-          timestamp: timestamp
-        };
-      } else {
-        // Используем преобразованное числовое значение
-        updates[`users/${userId}/lastWatched`] = {
-          type: isTV ? 'tvShow' : 'movie',
-          contentId: parsedContentId,
-          season: seasonNumber,
-          episode: episodeNumber,
-          time: roundedTime,
-          timestamp: timestamp
-        };
-      }
-    } else {
-      // contentId уже число
-      updates[`users/${userId}/lastWatched`] = {
-        type: isTV ? 'tvShow' : 'movie',
-        contentId: contentId,
-        season: seasonNumber,
-        episode: episodeNumber,
-        time: roundedTime,
-        timestamp: timestamp
-      };
-    }
+    // Сохраняем данные о последнем просмотре, используя contentId без преобразований
+    updates[`users/${userId}/lastWatched`] = {
+      type: isTV ? 'tvShow' : 'movie',
+      contentId,
+      season: seasonNumber,
+      episode: episodeNumber,
+      time: exactTime,
+      timestamp: timestamp
+    };
     
     // Отправляем обновления в Firebase
     await update(ref(db), updates);
@@ -152,7 +124,7 @@ export const saveVideoProgress = async (
       type: isTV ? 'tvShow' : 'movie',
       season: seasonNumber,
       episode: episodeNumber,
-      time: roundedTime
+      time: exactTime
     });
   } catch (error) {
     console.error('Ошибка сохранения прогресса:', error);

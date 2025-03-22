@@ -7,10 +7,14 @@ import { toast } from 'react-toastify';
 interface Transaction {
   id: string;
   date: number;
-  amount: number;
-  plan: string;
+  amount?: number;
+  plan?: string;
   status: string;
   txHash?: string;
+  type?: string;
+  prize?: string;
+  fromAddress?: string;
+  toAddress?: string;
 }
 
 export function TransactionHistoryPage() {
@@ -84,6 +88,82 @@ export function TransactionHistoryPage() {
     }
   };
 
+  const getTransactionTypeText = (transaction: Transaction) => {
+    if (transaction.type === 'roulette_deposit') {
+      return 'Пополнение баланса рулетки';
+    } else if (transaction.type === 'roulette_spin') {
+      return 'Вращение рулетки';
+    } else if (transaction.type === 'roulette_win') {
+      switch (transaction.prize) {
+        case 'ton':
+          return 'Выигрыш в рулетке (1 TON)';
+        case 'subscription':
+          return 'Выигрыш в рулетке (Luxury 1 день)';
+        default:
+          return 'Выигрыш в рулетке';
+      }
+    } else if (transaction.type === 'ton_prize_transfer') {
+      return 'Перевод TON на кошелек';
+    } else if (transaction.type === 'admin_balance_change') {
+      return 'Изменение баланса администратором';
+    } else if (transaction.type === 'subscription') {
+      return `Подписка "${transaction.plan}"`;
+    } else if (transaction.type === 'trial') {
+      return `Пробный период "${transaction.plan}"`;
+    } else {
+      return `Подписка "${transaction.plan}"`;
+    }
+  };
+
+  const getTransactionAmount = (transaction: Transaction) => {
+    if (transaction.type === 'roulette_win' && transaction.prize === 'ton') {
+      return '+1.000';
+    } else if (transaction.type === 'roulette_deposit') {
+      // @ts-ignore
+      if (transaction.fromAddress && transaction.toAddress) {
+        return transaction.amount ? `+${transaction.amount.toFixed(3)}` : '-';
+      }
+      return transaction.amount ? transaction.amount.toFixed(3) : '-';
+    } else if (transaction.type === 'admin_balance_change') {
+      // @ts-ignore - typescript не видит поля oldBalance и newBalance
+      if (transaction.oldBalance !== undefined && transaction.newBalance !== undefined) {
+        // @ts-ignore
+        const diff = transaction.newBalance - transaction.oldBalance;
+        return diff > 0 ? `+${diff.toFixed(3)}` : `${diff.toFixed(3)}`;
+      }
+      return '-';
+    } else if (transaction.type === 'roulette_win' && transaction.prize === 'subscription') {
+      return '-';
+    } else if (transaction.type === 'roulette_win' && transaction.prize === 'nothing') {
+      return '-';
+    } else if (transaction.amount !== undefined) {
+      return transaction.amount.toFixed(3);
+    } else {
+      return '-';
+    }
+  };
+
+  const getAmountClass = (transaction: Transaction) => {
+    if (transaction.type === 'roulette_win' && transaction.prize === 'ton') {
+      return 'text-green-400';
+    } else if (transaction.type === 'roulette_deposit') {
+      return 'text-green-400';
+    } else if (transaction.type === 'admin_balance_change') {
+      // @ts-ignore
+      if (transaction.oldBalance !== undefined && transaction.newBalance !== undefined) {
+        // @ts-ignore
+        return transaction.newBalance > transaction.oldBalance ? 'text-green-400' : 'text-red-400';
+      }
+      return '';
+    } else if (transaction.type === 'subscription') {
+      return 'text-yellow-400';
+    } else if (transaction.type === 'roulette_spin') {
+      return 'text-red-400';
+    } else {
+      return '';
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
@@ -111,7 +191,7 @@ export function TransactionHistoryPage() {
                     Дата и время
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Тип подписки
+                    Операция
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Сумма (TON)
@@ -131,10 +211,10 @@ export function TransactionHistoryPage() {
                       {new Date(transaction.date).toLocaleString('ru-RU')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      Подписка "{transaction.plan}"
+                      {getTransactionTypeText(transaction)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {transaction.amount} TON
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${getAmountClass(transaction)}`}>
+                      {getTransactionAmount(transaction)}
                     </td>
                     <td className={`px-6 py-4 whitespace-nowrap text-sm ${getStatusClass(transaction.status)}`}>
                       {getStatusText(transaction.status)}

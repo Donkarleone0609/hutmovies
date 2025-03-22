@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { User } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { ref, get, set } from 'firebase/database';
 
 export function MoviePage() {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +18,9 @@ export function MoviePage() {
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const [loading, setLoading] = useState(true);
   const [movie, setMovie] = useState<any>(null);
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [averageRating, setAverageRating] = useState<number | null>(null);
+  const [hasWatched, setHasWatched] = useState(false);
 
   useEffect(() => {
     const fetchMovie = async () => {
@@ -26,7 +29,13 @@ export function MoviePage() {
         const snapshot = await get(movieRef);
         
         if (snapshot.exists()) {
-          setMovie(snapshot.val());
+          const movieData = snapshot.val();
+          setMovie(movieData);
+          if (movieData.ratings) {
+            const totalRatings = Object.values(movieData.ratings) as number[];
+            const avgRating = totalRatings.reduce((acc, rating) => acc + rating, 0) / totalRatings.length;
+            setAverageRating(avgRating);
+          }
         } else {
           setMovie(null);
         }
@@ -50,8 +59,22 @@ export function MoviePage() {
             const isActive = subscription.status === 'active' && subscription.endDate > Date.now();
             setHasActiveSubscription(isActive);
           }
+          
+          // Проверяем, смотрел ли пользователь фильм
+          const watchHistoryRef = ref(db, `users/${user.uid}/movieTimeStamps/${id}`);
+          const watchSnapshot = await get(watchHistoryRef);
+          setHasWatched(watchSnapshot.exists());
+          
+          // Получаем оценку пользователя, если она есть
+          if (id) {
+            const userRatingRef = ref(db, `movies/${id}/ratings/${user.uid}`);
+            const userRatingSnapshot = await get(userRatingRef);
+            if (userRatingSnapshot.exists()) {
+              setUserRating(userRatingSnapshot.val());
+            }
+          }
         } catch (error) {
-          console.error('Error checking subscription:', error);
+          console.error('Error checking user data:', error);
         } finally {
           setLoading(false);
         }
@@ -119,6 +142,28 @@ export function MoviePage() {
     );
   };
 
+  const handleRating = async (rating: number) => {
+    if (!currentUser || !movie || !movie.videoSrc || !hasWatched) return;
+    try {
+      const ratingRef = ref(db, `movies/${movie.id}/ratings/${currentUser.uid}`);
+      await set(ratingRef, rating);
+      setUserRating(rating);
+      // Recalculate average rating
+      const movieRef = ref(db, `movies/${movie.id}`);
+      const snapshot = await get(movieRef);
+      if (snapshot.exists()) {
+        const movieData = snapshot.val();
+        if (movieData.ratings) {
+          const totalRatings = Object.values(movieData.ratings) as number[];
+          const avgRating = totalRatings.reduce((acc, rating) => acc + rating, 0) / totalRatings.length;
+          setAverageRating(avgRating);
+        }
+      }
+    } catch (error) {
+      console.error('Error setting rating:', error);
+    }
+  };
+
   if (loading) {
     return <div className="text-white text-center p-4">Загрузка...</div>;
   }
@@ -149,7 +194,7 @@ export function MoviePage() {
                 </span>
                 <span className="flex items-center">
                   <StarIcon size={16} className="mr-1" />
-                  {movie.rating}
+                  {averageRating ? averageRating.toFixed(1) : movie.rating}
                 </span>
                 <span>{movie.year}</span>
                 <span className="flex items-center">
@@ -161,6 +206,21 @@ export function MoviePage() {
                   {movie.director}
                 </span>
               </div>
+
+              {currentUser && movie.videoSrc && hasWatched && (
+                <div className="flex gap-2 mb-4">
+                  <span className="text-gray-400 mr-2">Ваша оценка:</span>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => handleRating(star)}
+                      className={`text-xl ${userRating && userRating >= star ? 'text-yellow-400' : 'text-gray-400'}`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <p className="text-lg text-gray-300 mb-8">{movie.description}</p>
 
