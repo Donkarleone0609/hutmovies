@@ -17,9 +17,6 @@ import { User } from 'firebase/auth';
 import { ref, get, update } from 'firebase/database';
 import { saveVideoProgress, getVideoProgress, findNextEpisode, formatTime } from '../utils/videoHelper';
 
-const KINESCOPE_SHOW_ID = "-OMgEmp5qArVB39Lzog2";
-const KINESCOPE_EMBED_URL = "https://kinescope.io/embed/4W4r9iWbP69zcz2gK2yaZK";
-
 function VolumeSlider({ volume, onVolumeChange, isMuted, onMuteToggle }: {
   volume: number;
   onVolumeChange: (volume: number) => void;
@@ -232,7 +229,7 @@ export function PlayerPage() {
   const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false);
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(5);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [useKinescope, setUseKinescope] = useState(false);
+  const [kinescopeEmbedUrl, setKinescopeEmbedUrl] = useState<string | null>(null);
 
   const searchParams = new URLSearchParams(location.search);
   const season = searchParams.get('season');
@@ -292,18 +289,20 @@ export function PlayerPage() {
           return;
         }
 
-        // Проверяем специальный ID для Kinescope
-        if (id === KINESCOPE_SHOW_ID) {
-          setUseKinescope(true);
-          setIsLoading(false);
-          return;
-        }
-
         const contentRef = ref(db, isTV ? `tvShows/${id}` : `movies/${id}`);
         const snapshot = await get(contentRef);
         
         if (snapshot.exists()) {
           const contentData = snapshot.val();
+          
+          // Проверяем, является ли это Kinescope видео
+          if (contentData.videoSrc && 
+              (contentData.videoSrc.includes('kinescope.io') || 
+               contentData.videoSrc.includes('kinescope.io/embed'))) {
+            setKinescopeEmbedUrl(contentData.videoSrc);
+            setIsLoading(false);
+            return;
+          }
           
           if (isTV && season && episode) {
             if (!contentData.seasons || !Array.isArray(contentData.seasons) || contentData.seasons.length === 0) {
@@ -330,6 +329,14 @@ export function PlayerPage() {
               }
               
               if (episodeObj && episodeObj.videoSrc) {
+                // Проверяем Kinescope для эпизода
+                if (episodeObj.videoSrc.includes('kinescope.io') || 
+                    episodeObj.videoSrc.includes('kinescope.io/embed')) {
+                  setKinescopeEmbedUrl(episodeObj.videoSrc);
+                  setIsLoading(false);
+                  return;
+                }
+                
                 const videoPath = await getLocalVideo(episodeObj.videoSrc);
                 
                 if (videoPath) {
@@ -386,7 +393,7 @@ export function PlayerPage() {
 
   useEffect(() => {
     const loadProgress = async () => {
-      if (!currentUser || !videoRef.current || !videoSource || useKinescope) return;
+      if (!currentUser || !videoRef.current || !videoSource || kinescopeEmbedUrl) return;
 
       try {
         if (continueWatching) {
@@ -429,7 +436,7 @@ export function PlayerPage() {
       }
     };
 
-    if (videoRef.current && videoSource && !useKinescope) {
+    if (videoRef.current && videoSource && !kinescopeEmbedUrl) {
       const handleMetadataLoaded = () => {
         loadProgress();
         setInitialized(true);
@@ -443,10 +450,10 @@ export function PlayerPage() {
         }
       };
     }
-  }, [currentUser, id, videoSource, season, episode, isTV, continueWatching, duration, useKinescope]);
+  }, [currentUser, id, videoSource, season, episode, isTV, continueWatching, duration, kinescopeEmbedUrl]);
 
   const saveProgress = async () => {
-    if (!currentUser || !videoRef.current || !videoSource || useKinescope) return;
+    if (!currentUser || !videoRef.current || !videoSource || kinescopeEmbedUrl) return;
     
     try {
       const roundedTime = Math.floor(videoRef.current.currentTime);
@@ -474,7 +481,7 @@ export function PlayerPage() {
       }
       
       progressIntervalRef.current = setInterval(() => {
-        if (!currentUser || !videoRef.current || !videoSource || !isPlaying || useKinescope) return;
+        if (!currentUser || !videoRef.current || !videoSource || !isPlaying || kinescopeEmbedUrl) return;
         saveProgress();
       }, 30000);
     };
@@ -486,7 +493,7 @@ export function PlayerPage() {
       }
     };
     
-    if (isPlaying && !useKinescope) {
+    if (isPlaying && !kinescopeEmbedUrl) {
       startProgressSaving();
     } else {
       stopProgressSaving();
@@ -495,7 +502,7 @@ export function PlayerPage() {
     return () => {
       stopProgressSaving();
     };
-  }, [isPlaying, currentUser, id, videoSource, season, episode, isTV, duration, useKinescope]);
+  }, [isPlaying, currentUser, id, videoSource, season, episode, isTV, duration, kinescopeEmbedUrl]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -504,7 +511,7 @@ export function PlayerPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [currentUser, id, videoSource, season, episode, isTV, useKinescope]);
+  }, [currentUser, id, videoSource, season, episode, isTV, kinescopeEmbedUrl]);
 
   useEffect(() => {
     return () => {
@@ -513,7 +520,7 @@ export function PlayerPage() {
   }, [currentUser, id, videoSource, season, episode, isTV]);
 
   useEffect(() => {
-    if (!videoRef.current || useKinescope) return;
+    if (!videoRef.current || kinescopeEmbedUrl) return;
     
     const handlePause = () => {
       saveProgress();
@@ -532,7 +539,7 @@ export function PlayerPage() {
         videoRef.current.removeEventListener('ended', handleEnded);
       }
     };
-  }, [videoRef.current, currentUser, id, videoSource, season, episode, isTV, useKinescope]);
+  }, [videoRef.current, currentUser, id, videoSource, season, episode, isTV, kinescopeEmbedUrl]);
 
   useEffect(() => {
     const loadUserSettings = async () => {
@@ -593,7 +600,7 @@ export function PlayerPage() {
       videoRef.current.currentTime = 0;
     }
     
-    if (isTV && userSettings.autoplayNext && !useKinescope) {
+    if (isTV && userSettings.autoplayNext && !kinescopeEmbedUrl) {
       try {
         if (!id || !season || !episode) return;
         
@@ -669,11 +676,11 @@ export function PlayerPage() {
       </div>
       
       <div className="flex-1 flex items-center justify-center relative animate-fade-in">
-        {useKinescope ? (
+        {kinescopeEmbedUrl ? (
           <div className="w-full h-full">
             <div style={{ position: 'relative', paddingTop: '56.43%', width: '100%' }}>
               <iframe 
-                src={KINESCOPE_EMBED_URL}
+                src={kinescopeEmbedUrl}
                 allow="autoplay; fullscreen; picture-in-picture; encrypted-media; gyroscope; accelerometer; clipboard-write; screen-wake-lock;"
                 frameBorder="0"
                 allowFullScreen
