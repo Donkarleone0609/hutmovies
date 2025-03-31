@@ -17,51 +17,8 @@ import { User } from 'firebase/auth';
 import { ref, get, update } from 'firebase/database';
 import { saveVideoProgress, getVideoProgress, findNextEpisode, formatTime } from '../utils/videoHelper';
 
-// Динамический импорт видео
-const getLocalVideo = async (path: string) => {
-  try {
-    console.log('Обработка пути видео:', path);
-    
-    // Если это полный URL, возвращаем его как есть
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      console.log('Обнаружен полный URL, возвращаю как есть');
-      return path;
-    }
-    
-    // Проверка на объект из импорта (если путь уже обработан)
-    if (typeof path === 'object' && path !== null) {
-      console.log('Получен объект импорта, возвращаю его');
-      return path;
-    }
-    
-    // Определение точного имени файла из пути
-    const fileName = path.split('/').pop();
-    if (!fileName) {
-      console.error('Не удалось извлечь имя файла из пути:', path);
-      return null;
-    }
-
-    // Формируем URL к видео в public директории
-    const videoUrl = `/movies/${fileName}`;
-    console.log('Итоговый URL для видео:', videoUrl);
-    return videoUrl;
-  } catch (error) {
-    console.error('Ошибка при получении видео:', error);
-    return null;
-  }
-};
-
-interface Movie {
-  id: number;
-  videoSrc: string;
-  [key: string]: any;
-}
-
-interface TVShow {
-  id: number;
-  videoSrc: string;
-  [key: string]: any;
-}
+const KINESCOPE_SHOW_ID = "-OMgEmp5qArVB39Lzog2";
+const KINESCOPE_EMBED_URL = "https://kinescope.io/embed/4W4r9iWbP69zcz2gK2yaZK";
 
 function VolumeSlider({ volume, onVolumeChange, isMuted, onMuteToggle }: {
   volume: number;
@@ -275,30 +232,17 @@ export function PlayerPage() {
   const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false);
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(5);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [useKinescope, setUseKinescope] = useState(false);
 
   const searchParams = new URLSearchParams(location.search);
   const season = searchParams.get('season');
   const episode = searchParams.get('episode');
   const continueWatching = searchParams.get('continue') === 'true';
 
-  // Функция форматирования времени
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds)) return '0:00';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
-
-  // Определяем тип контента на основе URL и параметров
   const isTV = location.pathname.startsWith('/tvShow/') || 
                (location.pathname.startsWith('/player/') && searchParams.has('season') && searchParams.has('episode')) ||
                (location.pathname.startsWith('/watch/') && searchParams.has('season') && searchParams.has('episode'));
 
-  // Следим за изменениями полноэкранного режима
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
@@ -307,6 +251,30 @@ export function PlayerPage() {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  const getLocalVideo = async (path: string) => {
+    try {
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return path;
+      }
+      
+      if (typeof path === 'object' && path !== null) {
+        return path;
+      }
+      
+      const fileName = path.split('/').pop();
+      if (!fileName) {
+        console.error('Не удалось извлечь имя файла из пути:', path);
+        return null;
+      }
+
+      const videoUrl = `/movies/${fileName}`;
+      return videoUrl;
+    } catch (error) {
+      console.error('Ошибка при получении видео:', error);
+      return null;
+    }
+  };
 
   useEffect(() => {
     const loadContent = async () => {
@@ -324,20 +292,20 @@ export function PlayerPage() {
           return;
         }
 
-        // Выбираем путь в зависимости от типа контента
+        // Проверяем специальный ID для Kinescope
+        if (id === KINESCOPE_SHOW_ID) {
+          setUseKinescope(true);
+          setIsLoading(false);
+          return;
+        }
+
         const contentRef = ref(db, isTV ? `tvShows/${id}` : `movies/${id}`);
-        console.log('Загрузка контента из:', isTV ? 'tvShows' : 'movies', 'с ID:', id);
-        console.log('URL путь:', location.pathname);
-        console.log('Параметры:', { season, episode });
-        
         const snapshot = await get(contentRef);
         
         if (snapshot.exists()) {
           const contentData = snapshot.val();
-          console.log('Данные контента:', contentData);
           
           if (isTV && season && episode) {
-            // Проверяем наличие сезонов в данных
             if (!contentData.seasons || !Array.isArray(contentData.seasons) || contentData.seasons.length === 0) {
               console.log('В данных не найдены сезоны:', contentData);
               loadingTimeoutRef.current = setTimeout(() => {
@@ -346,31 +314,25 @@ export function PlayerPage() {
               return;
             }
           
-            // Для сериалов ищем нужный эпизод
             const seasonObj = contentData.seasons.find((s: any) => 
               s.number.toString() === season || s.number === parseInt(season)
             );
             if (seasonObj) {
-              // Сначала ищем по ID
               let episodeObj = seasonObj.episodes.find((e: any) => 
                 e.id?.toString() === episode || e.id === parseInt(episode)
               );
               
-              // Если не нашли по ID, пробуем использовать индекс массива (эпизод №...)
               if (!episodeObj && !isNaN(parseInt(episode)) && parseInt(episode) > 0) {
                 const index = parseInt(episode) - 1;
                 if (index >= 0 && index < seasonObj.episodes.length) {
                   episodeObj = seasonObj.episodes[index];
-                  console.log('Найден эпизод по индексу:', index, episodeObj);
                 }
               }
               
               if (episodeObj && episodeObj.videoSrc) {
-                console.log('Найден эпизод с видео:', episodeObj);
                 const videoPath = await getLocalVideo(episodeObj.videoSrc);
                 
                 if (videoPath) {
-                  console.log('Использую видео из источника:', videoPath);
                   setVideoSource(videoPath);
                   setIsLoading(false);
                 } else {
@@ -380,24 +342,10 @@ export function PlayerPage() {
                 return;
               }
             }
-            console.log('Эпизод не найден:', {
-              searchParams: { season, episode },
-              seasons: contentData.seasons?.map((s: { number: number, episodes?: any[] }) => ({
-                number: s.number,
-                episodeCount: s.episodes?.length || 0
-              })),
-              seasonFound: seasonObj ? {
-                number: seasonObj.number,
-                episodes: seasonObj.episodes?.map((e: { id: number, title: string }) => ({ id: e.id, title: e.title })) || []
-              } : null
-            });
           } else if (contentData.videoSrc) {
-            // Для фильмов используем поле videoSrc
-            console.log('Путь к видео:', contentData.videoSrc);
             const videoPath = await getLocalVideo(contentData.videoSrc);
             
             if (videoPath) {
-              console.log('Использую видео из источника:', videoPath);
               setVideoSource(videoPath);
               setIsLoading(false);
             } else {
@@ -429,8 +377,6 @@ export function PlayerPage() {
     };
   }, [id, navigate, isTV, location.pathname, season, episode]);
 
-  const getRoundedTime = (time: number) => Math.floor(time / 60) * 60;
-
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
       setCurrentUser(user);
@@ -440,7 +386,7 @@ export function PlayerPage() {
 
   useEffect(() => {
     const loadProgress = async () => {
-      if (!currentUser || !videoRef.current || !videoSource) return;
+      if (!currentUser || !videoRef.current || !videoSource || useKinescope) return;
 
       try {
         if (continueWatching) {
@@ -456,33 +402,21 @@ export function PlayerPage() {
           );
           
           if (savedProgress) {
-            console.log('Загружен сохраненный прогресс:', savedProgress);
-            
-            // Проверяем, что прогресс содержит корректное значение времени
             if (typeof savedProgress.time === 'number' && savedProgress.time > 0) {
-              // Если сохраненное время близко к концу видео, начинаем с начала
               if (duration > 0 && savedProgress.time >= duration - 10) {
                 videoRef.current.currentTime = 0;
-                console.log('Время просмотра близко к концу, начинаем с начала');
               } else {
                 videoRef.current.currentTime = savedProgress.time;
-                console.log('Восстановлена позиция:', savedProgress.time);
               }
             }
-          } else {
-            console.log('Сохраненный прогресс не найден, начинаем с начала');
           }
-        } else {
-          console.log('Параметр continue не установлен, начинаем с начала');
         }
         
-        // Запускаем воспроизведение
         try {
           const playPromise = videoRef.current.play();
           if (playPromise !== undefined) {
             playPromise.catch(error => {
               console.error('Ошибка автовоспроизведения:', error);
-              // Многие браузеры блокируют автовоспроизведение без взаимодействия с пользователем
               setIsPlaying(false);
             });
           }
@@ -495,8 +429,7 @@ export function PlayerPage() {
       }
     };
 
-    // Загружаем прогресс после загрузки метаданных видео
-    if (videoRef.current && videoSource) {
+    if (videoRef.current && videoSource && !useKinescope) {
       const handleMetadataLoaded = () => {
         loadProgress();
         setInitialized(true);
@@ -510,11 +443,10 @@ export function PlayerPage() {
         }
       };
     }
-  }, [currentUser, id, videoSource, season, episode, isTV, continueWatching, duration]);
+  }, [currentUser, id, videoSource, season, episode, isTV, continueWatching, duration, useKinescope]);
 
-  // Функция сохранения прогресса
   const saveProgress = async () => {
-    if (!currentUser || !videoRef.current || !videoSource) return;
+    if (!currentUser || !videoRef.current || !videoSource || useKinescope) return;
     
     try {
       const roundedTime = Math.floor(videoRef.current.currentTime);
@@ -530,20 +462,11 @@ export function PlayerPage() {
         seasonId,
         episodeId
       );
-      
-      console.log('Прогресс успешно сохранен:', {
-        contentId: id,
-        type: isTV ? 'tvShow' : 'movie',
-        season: seasonId,
-        episode: episodeId,
-        time: roundedTime
-      });
     } catch (error) {
       console.error('Ошибка сохранения прогресса:', error);
     }
   };
 
-  // Периодическое сохранение прогресса
   useEffect(() => {
     const startProgressSaving = () => {
       if (progressIntervalRef.current) {
@@ -551,9 +474,9 @@ export function PlayerPage() {
       }
       
       progressIntervalRef.current = setInterval(() => {
-        if (!currentUser || !videoRef.current || !videoSource || !isPlaying) return;
+        if (!currentUser || !videoRef.current || !videoSource || !isPlaying || useKinescope) return;
         saveProgress();
-      }, 30000); // Каждые 30 секунд
+      }, 30000);
     };
     
     const stopProgressSaving = () => {
@@ -563,7 +486,7 @@ export function PlayerPage() {
       }
     };
     
-    if (isPlaying) {
+    if (isPlaying && !useKinescope) {
       startProgressSaving();
     } else {
       stopProgressSaving();
@@ -572,7 +495,7 @@ export function PlayerPage() {
     return () => {
       stopProgressSaving();
     };
-  }, [isPlaying, currentUser, id, videoSource, season, episode, isTV, duration]);
+  }, [isPlaying, currentUser, id, videoSource, season, episode, isTV, duration, useKinescope]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -581,18 +504,16 @@ export function PlayerPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [currentUser, id, videoSource, season, episode, isTV]);
+  }, [currentUser, id, videoSource, season, episode, isTV, useKinescope]);
 
-  // Сохранение прогресса при выходе из компонента
   useEffect(() => {
     return () => {
       saveProgress();
     };
   }, [currentUser, id, videoSource, season, episode, isTV]);
 
-  // Сохранение прогресса при событиях плеера
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || useKinescope) return;
     
     const handlePause = () => {
       saveProgress();
@@ -611,9 +532,8 @@ export function PlayerPage() {
         videoRef.current.removeEventListener('ended', handleEnded);
       }
     };
-  }, [videoRef.current, currentUser, id, videoSource, season, episode, isTV]);
+  }, [videoRef.current, currentUser, id, videoSource, season, episode, isTV, useKinescope]);
 
-  // Загрузка настроек пользователя из Firebase
   useEffect(() => {
     const loadUserSettings = async () => {
       if (!currentUser) return;
@@ -625,10 +545,9 @@ export function PlayerPage() {
         if (snapshot.exists()) {
           const settings = snapshot.val();
           setUserSettings({
-            autoplayNext: settings.autoplayNext !== false, // По умолчанию true
+            autoplayNext: settings.autoplayNext !== false,
             autoDownload: settings.autoDownload === true
           });
-          console.log('Загружены настройки пользователя:', settings);
         }
       } catch (error) {
         console.error('Ошибка загрузки настроек пользователя:', error);
@@ -638,7 +557,6 @@ export function PlayerPage() {
     loadUserSettings();
   }, [currentUser]);
 
-  // Восстанавливаем настройки громкости из localStorage
   useEffect(() => {
     const savedVolume = localStorage.getItem('player_volume');
     const savedMuted = localStorage.getItem('player_muted');
@@ -659,7 +577,6 @@ export function PlayerPage() {
     }
   }, []);
   
-  // Сохраняем настройки громкости в localStorage при изменении
   useEffect(() => {
     localStorage.setItem('player_volume', volume.toString());
     localStorage.setItem('player_muted', isMuted.toString());
@@ -670,23 +587,15 @@ export function PlayerPage() {
     }
   }, [volume, isMuted]);
 
-  // Обработчик окончания видео и автовоспроизведения следующего эпизода
   const handleVideoEnded = async () => {
     setIsPlaying(false);
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
     }
     
-    // Если включена настройка автовоспроизведения следующего эпизода
-    if (isTV && userSettings.autoplayNext) {
-      console.log('Автовоспроизведение следующего эпизода...');
-      
+    if (isTV && userSettings.autoplayNext && !useKinescope) {
       try {
-        // Получаем информацию о следующем эпизоде
-        if (!id || !season || !episode) {
-          console.log('Недостаточно данных для поиска следующего эпизода');
-          return;
-        }
+        if (!id || !season || !episode) return;
         
         const seasonId = parseInt(season);
         const episodeId = parseInt(episode);
@@ -694,14 +603,10 @@ export function PlayerPage() {
         const nextEpisodeData = await findNextEpisode(id, seasonId, episodeId);
         
         if (nextEpisodeData) {
-          console.log(`Найден следующий эпизод: S${nextEpisodeData.season}E${nextEpisodeData.episode}`);
-          
-          // Сохраняем информацию о следующем эпизоде и показываем UI
           setNextEpisode(nextEpisodeData);
           setShowNextEpisodeUI(true);
           setNextEpisodeCountdown(5);
           
-          // Запускаем обратный отсчет
           if (countdownIntervalRef.current) {
             clearInterval(countdownIntervalRef.current);
           }
@@ -709,12 +614,9 @@ export function PlayerPage() {
           countdownIntervalRef.current = setInterval(() => {
             setNextEpisodeCountdown(prev => {
               if (prev <= 1) {
-                // Переходим к следующему эпизоду
                 const nextEpisodeUrl = `/player/${id}?season=${nextEpisodeData.season}&episode=${nextEpisodeData.episode}&continue=true`;
-                console.log(`Переход к следующему эпизоду: ${nextEpisodeUrl}`);
                 navigate(nextEpisodeUrl);
                 
-                // Очищаем интервал
                 if (countdownIntervalRef.current) {
                   clearInterval(countdownIntervalRef.current);
                   countdownIntervalRef.current = null;
@@ -724,8 +626,6 @@ export function PlayerPage() {
               return prev - 1;
             });
           }, 1000);
-        } else {
-          console.log('Следующий эпизод не найден');
         }
       } catch (error) {
         console.error('Ошибка при переходе к следующему эпизоду:', error);
@@ -733,7 +633,6 @@ export function PlayerPage() {
     }
   };
   
-  // Отмена автовоспроизведения следующего эпизода
   const cancelNextEpisode = () => {
     setShowNextEpisodeUI(false);
     if (countdownIntervalRef.current) {
@@ -742,16 +641,13 @@ export function PlayerPage() {
     }
   };
   
-  // Немедленный переход к следующему эпизоду
   const playNextEpisodeNow = () => {
     if (!nextEpisode || !id) return;
     
     const nextEpisodeUrl = `/player/${id}?season=${nextEpisode.season}&episode=${nextEpisode.episode}&continue=true`;
-    console.log(`Переход к следующему эпизоду: ${nextEpisodeUrl}`);
     navigate(nextEpisodeUrl);
   };
 
-  // Очистка таймера при размонтировании компонента
   useEffect(() => {
     return () => {
       if (countdownIntervalRef.current) {
@@ -773,7 +669,19 @@ export function PlayerPage() {
       </div>
       
       <div className="flex-1 flex items-center justify-center relative animate-fade-in">
-        {isLoading ? (
+        {useKinescope ? (
+          <div className="w-full h-full">
+            <div style={{ position: 'relative', paddingTop: '56.43%', width: '100%' }}>
+              <iframe 
+                src={KINESCOPE_EMBED_URL}
+                allow="autoplay; fullscreen; picture-in-picture; encrypted-media; gyroscope; accelerometer; clipboard-write; screen-wake-lock;"
+                frameBorder="0"
+                allowFullScreen
+                style={{ position: 'absolute', width: '100%', height: '100%', top: 0, left: 0 }}
+              />
+            </div>
+          </div>
+        ) : isLoading ? (
           <div className="flex flex-col items-center justify-center text-center px-4 py-10 text-white animate-fade-in">
             <div className="spinner-loader mb-4"></div>
             <p className="text-xl mt-4 animate-pulse-loading">Загрузка видео...</p>
@@ -817,7 +725,6 @@ export function PlayerPage() {
                 }}
               />
 
-              {/* Оверлей управления */}
               <div 
                 className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-0 hover:opacity-100 transition-opacity z-10 flex flex-col"
                 onClick={(e) => {
@@ -831,7 +738,6 @@ export function PlayerPage() {
                   }
                 }}
               >
-                {/* Нижняя панель управления */}
                 <div 
                   className="mt-auto p-4 select-none"
                   onClick={(e) => e.stopPropagation()}
@@ -905,7 +811,6 @@ export function PlayerPage() {
                 </div>
               </div>
 
-              {/* UI для автоперехода к следующему эпизоду */}
               {showNextEpisodeUI && nextEpisode && (
                 <div className="absolute bottom-24 right-8 p-4 bg-gray-900/90 rounded-lg shadow-lg animate-fade-in">
                   <div className="flex items-center gap-3 mb-3">
